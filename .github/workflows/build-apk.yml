@@ -3,7 +3,7 @@ name: Build Inkora Android APK
 on:
   push:
     branches: [ "main", "master" ]
-  workflow_dispatch: # Allows you to trigger the build manually with a button click
+  workflow_dispatch:
 
 jobs:
   build-android:
@@ -13,18 +13,17 @@ jobs:
       - name: 1. Checkout Repository
         uses: actions/checkout@v4
 
-      - name: 2. Verify & Fix Source Directory Layout
+      - name: 2. Fix Source Layout & Generate Missing Launcher Icons
         run: |
-          # Detect whether the 'android' folder is at root or if files are at root
           if [ -d "android/app" ]; then
             echo "WORK_DIR=android" >> $GITHUB_ENV
-             WORK_DIR="android"
+            WORK_DIR="android"
           else
             echo "WORK_DIR=." >> $GITHUB_ENV
             WORK_DIR="."
           fi
 
-          # Ensure MainActivity.kt is in src/main/kotlin if not configured in sourceSets
+          # 1. Ensure MainActivity.kt is in standard src/main/kotlin
           if [ -d "$WORK_DIR/app/src/kotlin" ] && [ ! -d "$WORK_DIR/app/src/main/kotlin" ]; then
             if ! grep -q "src/kotlin" "$WORK_DIR/app/build.gradle"; then
               echo "Copying src/kotlin to standard src/main/kotlin..."
@@ -33,13 +32,38 @@ jobs:
             fi
           fi
 
+          # 2. Generate missing @mipmap/ic_launcher and @mipmap/ic_launcher_round vector icons
+          RES_DIR="$WORK_DIR/app/src/main/res"
+          if [ ! -d "$RES_DIR/mipmap-anydpi-v26" ] && [ ! -d "$RES_DIR/mipmap-mdpi" ] && [ ! -d "$RES_DIR/mipmap" ]; then
+            echo "Generating missing mipmap/ic_launcher and mipmap/ic_launcher_round resources..."
+            mkdir -p "$RES_DIR/mipmap"
+
+            cat << 'EOF' > "$RES_DIR/mipmap/ic_launcher.xml"
+          <?xml version="1.0" encoding="utf-8"?>
+          <vector xmlns:android="http://schemas.android.com/apk/res/android"
+              android:width="108dp"
+              android:height="108dp"
+              android:viewportWidth="108"
+              android:viewportHeight="108">
+              <path
+                  android:fillColor="#1E1E2E"
+                  android:pathData="M0,0h108v108h-108z"/>
+              <path
+                  android:fillColor="#89B4FA"
+                  android:pathData="M34,74 L74,34 L68,28 L28,68 L28,74 Z"/>
+          </vector>
+          EOF
+
+            cp "$RES_DIR/mipmap/ic_launcher.xml" "$RES_DIR/mipmap/ic_launcher_round.xml"
+          fi
+
       - name: 3. Set up JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: 4. Set up Gradle (No Wrapper Required)
+      - name: 4. Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.7'
@@ -59,7 +83,6 @@ jobs:
           echo "✅ APK successfully built at: $APK_PATH"
           ls -lh "$APK_PATH"
 
-          # Locate aapt2 in the pre-installed Android SDK to verify package ID & SDK versions
           AAPT2=$(find $ANDROID_HOME/build-tools -name "aapt2" | sort -V | tail -n 1)
           if [ -n "$AAPT2" ]; then
             echo "--- APK BADGING & COMPATIBILITY INFO ---"
