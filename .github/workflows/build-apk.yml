@@ -1,0 +1,74 @@
+name: Build Inkora Android APK
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  workflow_dispatch: # Allows you to trigger the build manually with a button click
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 1. Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: 2. Verify & Fix Source Directory Layout
+        run: |
+          # Detect whether the 'android' folder is at root or if files are at root
+          if [ -d "android/app" ]; then
+            echo "WORK_DIR=android" >> $GITHUB_ENV
+             WORK_DIR="android"
+          else
+            echo "WORK_DIR=." >> $GITHUB_ENV
+            WORK_DIR="."
+          fi
+
+          # Ensure MainActivity.kt is in src/main/kotlin if not configured in sourceSets
+          if [ -d "$WORK_DIR/app/src/kotlin" ] && [ ! -d "$WORK_DIR/app/src/main/kotlin" ]; then
+            if ! grep -q "src/kotlin" "$WORK_DIR/app/build.gradle"; then
+              echo "Copying src/kotlin to standard src/main/kotlin..."
+              mkdir -p "$WORK_DIR/app/src/main/kotlin"
+              cp -r "$WORK_DIR/app/src/kotlin/"* "$WORK_DIR/app/src/main/kotlin/"
+            fi
+          fi
+
+      - name: 3. Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: 4. Set up Gradle (No Wrapper Required)
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
+      - name: 5. Build Debug APK
+        working-directory: ${{ env.WORK_DIR }}
+        run: gradle assembleDebug --stacktrace
+
+      - name: 6. Verify APK Binary & Inspect Metadata
+        working-directory: ${{ env.WORK_DIR }}
+        run: |
+          APK_PATH=$(find app/build/outputs/apk/debug -name "*.apk" | head -n 1)
+          if [ -z "$APK_PATH" ]; then
+            echo "Error: APK was not generated!"
+            exit 1
+          fi
+          echo "✅ APK successfully built at: $APK_PATH"
+          ls -lh "$APK_PATH"
+
+          # Locate aapt2 in the pre-installed Android SDK to verify package ID & SDK versions
+          AAPT2=$(find $ANDROID_HOME/build-tools -name "aapt2" | sort -V | tail -n 1)
+          if [ -n "$AAPT2" ]; then
+            echo "--- APK BADGING & COMPATIBILITY INFO ---"
+            $AAPT2 dump badging "$APK_PATH" | grep -E "package:|sdkVersion:|targetSdkVersion:|launchable-activity:"
+          fi
+
+      - name: 7. Upload Installable APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Inkora-Debug-APK
+          path: ${{ env.WORK_DIR }}/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
