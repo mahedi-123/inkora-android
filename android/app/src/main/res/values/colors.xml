@@ -1,0 +1,5 @@
+<resources>
+    <color name="ink_bg">#FFFFFFFF</color>
+    <color name="ink_bg_dark">#FF16171B</color>
+    <color name="ink_accent">#FF4C6EF5</color>
+</resources>
